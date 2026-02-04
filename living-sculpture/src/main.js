@@ -1,19 +1,23 @@
 import * as THREE from 'three';
-// Import Post-Processing
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { RGBShiftShader } from 'three/examples/jsm/shaders/RGBShiftShader.js';
+import GUI from 'lil-gui';
 
-// Import shaders
 import vertexShader from './vertex.glsl?raw';
 import fragmentShader from './fragment.glsl?raw';
 
 // --- 1. SETUP SCENE ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050505);
+// Inside Section 1
+scene.fog = new THREE.FogExp2(0x050505, 0.02); // Deep black fog
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.z = 2.5;
+camera.position.set(0, 0, 3.5);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -21,72 +25,91 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.toneMapping = THREE.ReinhardToneMapping;
 document.body.appendChild(renderer.domElement);
 
-// --- 2. AUDIO SETUP (MICROPHONE) ---
-let analyser;
-let dataArray;
-let isAudioActive = false;
+// --- CONTROLS ---
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.enableZoom = true;
+controls.minDistance = 1.5;
+controls.maxDistance = 10;
 
-// Create a simple overlay button via JavaScript
+// --- 2. GUI ---
+const gui = new GUI({ title: "Living Sculpture OS" });
+const params = {
+    colorA: '#1a0029',
+    colorB: '#ff0055',
+    colorC: '#00ffcc',
+    bloomStrength: 1.5,
+    noiseSpeed: 0.2,
+    autoRotate: true
+};
+
+// --- 3. BACKGROUND PARTICLES (Starfield) ---
+const particlesGeometry = new THREE.BufferGeometry();
+const particlesCount = 1500; // Fewer particles = clearer sky
+const posArray = new Float32Array(particlesCount * 3);
+
+for(let i = 0; i < particlesCount * 3; i++) {
+    // Spread them very wide (40) so they appear distant
+    posArray[i] = (Math.random() - 0.5) * 40; 
+}
+
+particlesGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+
+const particlesMaterial = new THREE.PointsMaterial({
+    size: 0.03,       // Small, sharp points
+    color: 0xffffff,  // Pure White
+    transparent: true,
+    opacity: 0.9,     // Bright starsn 
+    sizeAttenuation: true // Makes distant stars look smaller
+});
+                                                                   
+const particlesMesh = new THREE.Points(particlesGeometry, particlesMaterial);
+scene.add(particlesMesh);
+
+// --- 4. AUDIO ---
+let analyser, dataArray, isAudioActive = false;
 const overlay = document.createElement('div');
-overlay.style.position = 'absolute';
-overlay.style.top = '0';
-overlay.style.left = '0';
-overlay.style.width = '100%';
-overlay.style.height = '100%';
-overlay.style.display = 'flex';
-overlay.style.justifyContent = 'center';
-overlay.style.alignItems = 'center';
-overlay.style.backgroundColor = 'rgba(0,0,0,0.8)';
-overlay.style.color = 'white';
-overlay.style.fontFamily = 'monospace';
-overlay.style.fontSize = '24px';
-overlay.style.cursor = 'pointer';
-overlay.innerHTML = "[ CLICK TO AWAKEN ORGANISM ]";
+overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:radial-gradient(circle,rgba(10,10,10,0.8) 0%,rgba(0,0,0,1) 100%);color:white;font-family:monospace;font-size:24px;cursor:pointer;z-index:999;';
+overlay.innerHTML = "[ CLICK TO AWAKEN ]";
 document.body.appendChild(overlay);
 
-// Activate Audio on Click
 overlay.addEventListener('click', async () => {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioCtx.createMediaStreamSource(stream);
-        
         analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256; // How detailed the audio analysis is
+        analyser.fftSize = 256;
         source.connect(analyser);
-        
-        const bufferLength = analyser.frequencyBinCount;
-        dataArray = new Uint8Array(bufferLength);
-        
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
         isAudioActive = true;
-        overlay.style.display = 'none'; // Hide overlay
-        console.log("Audio System Online");
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.remove(), 1000);
     } catch (err) {
-        console.error("Microphone access denied:", err);
-        overlay.innerHTML = "MICROPHONE DENIED";
+        overlay.innerHTML = "AUDIO DENIED - VISUAL MODE";
+        setTimeout(() => overlay.remove(), 2000);
     }
 });
 
-// --- 3. POST PROCESSING ---
+// --- 5. POST PROCESSING ---
 const renderScene = new RenderPass(scene, camera);
 
-const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight), 
-    1.5, 0.4, 0.85
-);
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+const rgbShiftPass = new ShaderPass(RGBShiftShader);
+rgbShiftPass.uniforms['amount'].value = 0.0025;
 
 const composer = new EffectComposer(renderer);
 composer.addPass(renderScene);
 composer.addPass(bloomPass);
+composer.addPass(rgbShiftPass);
 
-// --- 4. INTERACTION ---
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2(9999, 9999);
-let hoverValue = 0; 
+gui.add(params, 'bloomStrength', 0, 3).onChange(v => bloomPass.strength = v);
+gui.add(rgbShiftPass.uniforms['amount'], 'value', 0, 0.01).name('Lens Distortion');
+gui.add(params, 'autoRotate');
 
-// --- 5. GEOMETRY & MATERIAL ---
+// --- 6. OBJECT ---
 const geometry = new THREE.IcosahedronGeometry(1, 100);
-
 const material = new THREE.ShaderMaterial({
   vertexShader,
   fragmentShader,
@@ -94,65 +117,66 @@ const material = new THREE.ShaderMaterial({
     uTime: { value: 0 },
     uNoiseStrength: { value: 0.2 },
     uNoiseSpeed: { value: 0.2 },
-    uColorA: { value: new THREE.Color('#1a0029') }, 
-    uColorB: { value: new THREE.Color('#ff0055') }, 
-    uColorC: { value: new THREE.Color('#00ffcc') }, 
+    uColorA: { value: new THREE.Color(params.colorA) }, 
+    uColorB: { value: new THREE.Color(params.colorB) }, 
+    uColorC: { value: new THREE.Color(params.colorC) }, 
     uHover: { value: 0 }
-  },
-  wireframe: false 
+  }
 });
+
+gui.addColor(params, 'colorA').onChange(v => material.uniforms.uColorA.value.set(v));
+gui.addColor(params, 'colorB').onChange(v => material.uniforms.uColorB.value.set(v));
+gui.addColor(params, 'colorC').onChange(v => material.uniforms.uColorC.value.set(v));
+gui.add(params, 'noiseSpeed', 0, 2);
 
 const organism = new THREE.Mesh(geometry, material);
 scene.add(organism);
 
-// --- 6. ANIMATION LOOP ---
+// --- 7. ANIMATION ---
 const clock = new THREE.Clock();
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2(9999, 9999);
+let hoverValue = 0; 
 
 function animate() {
   const elapsedTime = clock.getElapsedTime();
+  controls.update();
 
-  // A. Audio Processing
   let audioStrength = 0;
   if (isAudioActive) {
       analyser.getByteFrequencyData(dataArray);
-      
-      // Calculate average volume of lower frequencies (Bass)
-      // We look at the first 20 bins of the frequency data
       let sum = 0;
-      const bassFreqs = 20; 
-      for(let i = 0; i < bassFreqs; i++) {
-          sum += dataArray[i];
-      }
-      const average = sum / bassFreqs;
-      
-      // Normalize 0-255 range to 0.0-1.0 range
-      audioStrength = average / 255.0; 
+      for(let i = 0; i < 20; i++) sum += dataArray[i];
+      audioStrength = (sum / 20) / 255.0; 
   }
 
-  // B. Raycasting
   raycaster.setFromCamera(mouse, camera);
   const intersects = raycaster.intersectObject(organism);
   const targetHover = intersects.length > 0 ? 1.0 : 0.0;
   hoverValue += (targetHover - hoverValue) * 0.1;
 
-  // C. Update Uniforms
   material.uniforms.uTime.value = elapsedTime;
   material.uniforms.uHover.value = hoverValue; 
-  
-  // D. The Mix: Base Strength + Hover + Audio
-  // Base: 0.2
-  // Audio: Adds up to 1.0 based on volume
-  material.uniforms.uNoiseStrength.value = 0.2 + (audioStrength * 1.5); 
-  
-  // Also speed up the animation when loud
-  material.uniforms.uNoiseSpeed.value = 0.2 + (audioStrength * 0.5);
+  material.uniforms.uNoiseStrength.value = 0.2 + (audioStrength * 2.0); 
+  material.uniforms.uNoiseSpeed.value = params.noiseSpeed + (audioStrength * 2.0);
 
-  // E. Dynamic Bloom
-  bloomPass.strength = 1.5 + hoverValue * 1.5 + (audioStrength * 2.0);
+  bloomPass.strength = params.bloomStrength + hoverValue * 1.5 + (audioStrength * 3.0);
 
-  // F. Rotation
-  organism.rotation.y = elapsedTime * 0.1;
-  organism.rotation.z = elapsedTime * 0.05;
+  if (params.autoRotate) {
+      const rotationSpeed = 0.005 + (audioStrength * 0.1); 
+      organism.rotation.y += rotationSpeed;
+      organism.rotation.z += rotationSpeed * 0.5;
+  }
+
+  if (audioStrength > 0.3) {
+      organism.position.x = (Math.random() - 0.5) * audioStrength * 0.2;
+      organism.position.y = (Math.random() - 0.5) * audioStrength * 0.2;
+  } else {
+      organism.position.x *= 0.9;
+      organism.position.y *= 0.9;
+  }
+
+  particlesMesh.rotation.y = elapsedTime * 0.02;
 
   composer.render();
   requestAnimationFrame(animate);
@@ -160,12 +184,10 @@ function animate() {
 
 animate();
 
-// Event Listeners
 window.addEventListener('mousemove', (event) => {
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 });
-
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();

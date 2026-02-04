@@ -1,12 +1,14 @@
 uniform float uTime;
 uniform float uNoiseStrength;
 uniform float uNoiseSpeed;
-uniform float uHover; // <--- The nervous system signal
+uniform float uHover;
 
 varying vec2 vUv;
 varying float vDistortion;
+varying vec3 vNormal;
+varying vec3 vViewPosition;
 
-// --- SIMPLEX NOISE FUNCTION (Ashima/WebGl-noise) ---
+// --- NOISE FUNCTION ---
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
@@ -55,19 +57,16 @@ float snoise(vec3 v) {
   return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1),
                                 dot(p2,x2), dot(p3,x3) ) );
 }
-// --- END NOISE ---
 
 void main() {
   vUv = uv;
-  
   float noise = snoise(position * 0.5 + (uTime * uNoiseSpeed));
   vDistortion = noise;
-  
-  // Calculate final strength: Normal Strength + Interaction Strength
   float finalStrength = uNoiseStrength + (uHover * 0.3);
-
-  // Displace geometry
   vec3 newPos = position + (normal * noise * finalStrength);
 
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(newPos, 1.0);
+  vec4 mvPosition = modelViewMatrix * vec4(newPos, 1.0);
+  vViewPosition = -mvPosition.xyz;
+  vNormal = normalMatrix * normal; 
+  gl_Position = projectionMatrix * mvPosition;
 }
