@@ -155,19 +155,27 @@ function animate() {
   const targetHover = intersects.length > 0 ? 1.0 : 0.0;
   hoverValue += (targetHover - hoverValue) * 0.1;
 
+// D. Update Uniforms
   material.uniforms.uTime.value = elapsedTime;
   material.uniforms.uHover.value = hoverValue; 
-  material.uniforms.uNoiseStrength.value = 0.2 + (audioStrength * 2.0); 
-  material.uniforms.uNoiseSpeed.value = params.noiseSpeed + (audioStrength * 2.0);
+  
+  // REDUCED SPEED: Changed multiplier from * 2.0 to * 0.5
+  // This keeps the pulse deep but slow, like a sleeping giant
+  material.uniforms.uNoiseStrength.value = 0.2 + (audioStrength * 2.0); // Strength (size) stays big
+  material.uniforms.uNoiseSpeed.value = params.noiseSpeed + (audioStrength * 0.5); // <--- SLOWER
 
+  // E. Dynamic Bloom
   bloomPass.strength = params.bloomStrength + hoverValue * 1.5 + (audioStrength * 3.0);
 
+  // F. Rotation
   if (params.autoRotate) {
-      const rotationSpeed = 0.005 + (audioStrength * 0.1); 
+      // REDUCED SPIN: Changed multiplier from * 0.1 to * 0.02
+      // It will barely speed up, just a subtle drift
+      const rotationSpeed = 0.005 + (audioStrength * 0.02); // <--- SLOWER
       organism.rotation.y += rotationSpeed;
       organism.rotation.z += rotationSpeed * 0.5;
   }
-
+  
   if (audioStrength > 0.3) {
       organism.position.x = (Math.random() - 0.5) * audioStrength * 0.2;
       organism.position.y = (Math.random() - 0.5) * audioStrength * 0.2;
